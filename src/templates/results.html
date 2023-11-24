@@ -1,0 +1,1105 @@
+{% extends "base.html" %}
+
+{% block title %}Clustering Results{% endblock %}
+
+{% block head %}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+<style>
+    body {
+      font-family: Sans-Serif;
+      font-size: medium
+    }
+  </style>
+{% endblock %}
+
+{% block navbar %}
+<ul class="navbar-nav ml-auto">
+  <li class="nav-item">
+    <a class="nav-link active" aria-current="page" href="javascript:void(0);" onclick="downloadAll()">Download Dataset</a>
+  </li>
+</ul>
+{% endblock %}
+
+{% block content %}
+<div id="infoAlert" class="alert alert-info" style="display: none;">
+  Request received. Processing may take some time.
+</div>
+
+<div class="container">
+  <div class="row">
+      <h5>Topic Map</h5>
+      <p>Mouseover to see the details of the individual articles, use the slider to the right to change the minimum cluster size and rerun as required</p>
+      <br/>
+  </div>
+  <div class="row">
+    <div class="col-9 resizeable-div", id="scatter-plot"></div>       
+    <div class="col-3 vertial-center-recluster">
+      <label for="customRange2" class="form-label">Select a new minimum cluster size</label>
+      <div class="d-flex flex-column align-items-end">
+        <input type="range" class="form-range" min="50" max="10000" step="50" id="customRange2">
+        <div class="d-flex justify-content-end w-100">
+          <span id="selectedValue" class="small"></span>
+        </div>
+      </div>
+      <div class="mt-2">
+        <button type="button" class="btn btn-primary" onclick="rerunCluster()" id="rerun-button">
+            <span id="rerun-text">Rerun Clustering</span>
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" id="rerun-spinner" style="display: none;"></span>
+        </button>
+      </div>
+      
+      <style>
+        .small {
+          font-size: 0.8rem; /* Adjust the font size as needed */
+        }
+        .resizeable-div {
+          transition: height 0.3s linear; /* Add smooth transition effect */
+        }
+    
+        .resizeable-div.original-size {
+          height: 600px; /* Define the original height */
+        }
+    
+        .resizeable-div.expanded-size {
+          height: 700px; /* Define the expanded height */
+        }
+        .form-range::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 20px;
+          height: 20px;
+          background-color: #007bff;
+          border: none;
+          border-radius: 50%;
+          margin-top: -8px;
+        }
+        .form-range:focus::-webkit-slider-thumb {
+          box-shadow: 0 0 0 1px #007bff, 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+      </style>
+      
+      <script>
+        function showAlert() {
+            // Show the alert
+            $('#infoAlert').show();
+
+            // Hide the alert after 5 seconds
+            setTimeout(function() {
+                $('#infoAlert').hide();
+            }, 5000);
+        }
+
+        const newMinClusterSize = "{{ new_min_cluster_size or 'none' }}";
+        const defaultMinClusterSize = "{{ params.min_cluster_size }}";
+        const rangeSlider = document.getElementById('customRange2');
+        const selectedValue = document.getElementById('selectedValue');
+            
+        // Set the initial value of the slider based on the Flask value
+        rangeSlider.value = newMinClusterSize !== 'none' ? newMinClusterSize : defaultMinClusterSize; 
+        selectedValue.textContent = rangeSlider.value;
+      
+        // Update the label when the slider value changes
+        rangeSlider.addEventListener('input', function() {
+          selectedValue.textContent = this.value;
+          const thumbWidth = getComputedStyle(rangeSlider).getPropertyValue('--thumb-width');
+          const thumbPosition = (this.value - this.min) / (this.max - this.min) * (this.offsetWidth - parseInt(thumbWidth));
+          selectedValue.style.transform = `translateX(${thumbPosition}px)`;
+        });
+      
+        function rerunCluster() {
+          showAlert(); // Call the showAlert function
+          $('#rerun-spinner').show();
+          $('#rerun-text').hide();
+          // Get the selected cluster size
+          const newClusterSize = rangeSlider.value;
+          var fileName = "{{ file_name }}";
+
+          var comparatorType = "{{ comparator_type or 'none' }}";  // This sets the variable to 'none' if comparator_type is not available.
+          var comparator = "{{ comparator or 'none' }}"
+
+          // Check if comparator is 'none'
+          if (comparator == 'none') {
+              // Redirect to the rerun_cluster route without comparator parameters
+              window.location.href = `/custom_cluster_size/${encodeURIComponent(fileName)}/${newClusterSize}`;
+          } else {
+              // Redirect to the rerun_cluster route with comparator parameters
+              window.location.href = `/custom_cluster_size_comparator/${encodeURIComponent(fileName)}/${newClusterSize}/${comparatorType}/${comparator}`;
+          }
+      }
+      </script>
+    </div>
+
+  </div>
+</div>
+
+<style>
+  .custom-button {
+    /* Add styling properties for appearance */
+    padding: 10px 20px; /* Adjust padding as needed */
+    background-color: #007bff;
+    color: white;
+    border: none;
+    cursor: pointer;
+    /* You can keep other styling properties if needed */
+  } 
+</style>
+
+<div class="container">
+  <div class="row">
+    <div class="col-8">
+      <h5>Topic Cluster Exemplars</h5>
+    </div>
+    {% if comparator_type %}
+      <div class="col-2">
+        <button type="button" class="btn btn-secondary custom-button float-end" onclick="downloadExemplars(true)">Comparator Articles</button>
+      </div>
+    {% else %}
+      <div class="col-2"></div>
+    {% endif %}
+    <div class="col-2">
+      <button type="button" class="btn btn-primary custom-button float-end" onclick="downloadExemplars(false)">Download Articles</button>
+    </div>
+  </div>
+  <div class="row"></div>
+  <div id="exemplar-table"></div>
+</div>
+
+<div class="container">
+  <hr class="hr hr-blurry" />
+</div>
+
+<div class="container">
+  <div class="row">
+    <div class="col-5 center-div resizeable-div"><h5>Performance by Topic Cluster</h5></div>
+    <div class="col-1"></div>
+    <div class="col-5 center-div resizeable-div"><h5>OA Publications by Cluster</h5></div>
+  </div>
+  <div class="row">
+    <div class="col-5 resizeable-div chart-div center-div", id="topic-plot"></div>
+    <div class="col-1 center-div"></div>
+    <div class="col-5 resizeable-div chart-div center-div", id="oa-plot"></div>
+  </div>
+</div>
+
+<div class="container">
+  <hr class="hr hr-blurry" />
+</div>
+
+<div class="container">
+  <div class="row padded">
+    <h5>GPT Topic Summary</h5>
+  </div>
+  <div class="row padded">
+    <br />
+    <ul>
+      {% for item in summary %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <br />
+  </div>
+  {% block gptcomparator %}{% endblock %}
+
+</div>
+
+<div class="container">
+  <hr class="hr hr-blurry" />
+</div>
+
+<div class="container">
+  <div class="row">
+    <div class="col-8">
+      <h5>Cluster Authors</h5>
+    </div>
+    {% if comparator_type %}
+      <div class="col-2">
+        <button type="button" class="btn btn-secondary custom-button float-end" onclick="downloadAuthors(true)">Comparator Authors</button>
+      </div>
+    {% else %}
+      <div class="col-2"></div>
+    {% endif %}
+    <div class="col-2">
+      <button type="button" class="btn btn-secondary custom-button float-end" onclick="downloadAuthors(false)">Download Authors</button>
+    </div>
+  </div>
+  <div class="row"></div>
+    <div id="author-table"></div>
+</div>
+
+<div class="container">
+  <hr class="hr hr-blurry" />
+</div>
+
+<div class="container">
+  <div class="row">
+    <div class="col-8">
+      <h5>Mapping topics by author location</h5>
+    </div>
+    <div class="col-4">
+      <select id="viewSelector">
+        {% for item in clusters %}
+          {% if item not in ["None", "nan"] %}
+            <option value="{{ item }}">{{ item }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>      
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-1"></div>
+    <div class="col-11">
+      <div class="tooltip"></div>
+      <svg id="choroplethVis" width="900" height="500"></svg>
+    </div>
+    </div>
+  </div>
+  
+</div>
+
+
+
+{% endblock %}
+
+{% block scripts %}
+  <script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+  <script> 
+
+    new gridjs.Grid({
+      columns: [
+        { id: 'doi', name: 'DOI' },
+        { id: 'article_title', name: 'Article Title' },
+        { id: 'full_source_title', name: 'Publication' },
+        { id: 'citations', name: 'Citations' },
+        { id: 'year_published', name: 'Pub Year' },
+        { id: 'art_oa_status', name: 'OA Status' },
+        { id: 'publisher_group', name: 'Publisher' },
+        { id: 'gpt_label', name: 'GPT Label ' },
+      ],
+      data: [
+        {% for exemplar in exemplars %}
+          {
+            doi: '{% if exemplar.doi|length > 17 %}{{ exemplar.doi[:17] + "\\n" + exemplar.doi[17:] }}{% else %}{{ exemplar.doi }}{% endif %}',
+            article_title: '{{ exemplar.article_title }}',
+            full_source_title: '{{ exemplar.full_source_title }}',
+            citations: '{{ exemplar.citations }}',
+            year_published: '{{ exemplar.year_published }}',
+            art_oa_status: '{{ exemplar.art_oa_status }}',
+            publisher_group: '{{ exemplar.publisher_group }}',
+            gpt_label: '{{ exemplar.gpt_label }}',
+          },
+        {% endfor %}
+      ],
+      search: {
+        selector: (cell, rowIndex, cellIndex) => [0, 1, 4].includes(cellIndex) ? cell : null,
+      },
+      sort: true,
+      autoWidth: false,
+      pagination: true,
+      style: {
+        table: {
+          'font-size': '12px'
+        }
+      },
+    }).render(document.getElementById('exemplar-table'));
+
+    new gridjs.Grid({
+      columns: [
+        { id: 'gpt_label', name: "GPT Label" },
+        { id: 'author_full_name', name: 'Author Name' },
+        { id: 'research_org', name: 'Research Organisation' },
+        { id: 'prid_country', name: 'Country' },
+        { id: 'prid_region', name: 'Region' },
+        { id: 'sum_published', name: 'Publications'},
+        { id: 'sum_citations', name: 'Citations'},
+        { id: 'avg_cites_per_article', name: 'Cites per Publication'},
+      ],
+      data: [
+        {% for author in authors %}
+          {
+            gpt_label: '{{ author.gpt_label }}',
+            author_full_name: '{{ author.author_full_name }}',
+            research_org: '{{ author.research_org }}',
+            prid_country: '{{ author.prid_country }}',
+            prid_region: '{{ author.prid_region }}',
+            sum_published: '{{ author.sum_published }}',
+            sum_citations: '{{ author.sum_citations }}',
+            avg_cites_per_article: '{{ author.avg_cites_per_article }}',
+          },
+        {% endfor %}
+      ],
+      search: {
+        selector: (cell, rowIndex, cellIndex) => [0, 1].includes(cellIndex) ? cell : null,
+      },
+      sort: true,
+      autoWidth: false,
+      pagination: true,
+      style: {
+        table: {
+          'font-size': '12px'
+        }
+      },
+    }).render(document.getElementById('author-table'));
+
+    var fileName = "{{ file_name }}";
+    var comparatorType = "{{ comparator_type or 'none' }}";  // This sets the variable to 'none' if comparator_type is not available.
+    var comparator = "{{ comparator or 'none' }}"
+    var custom = "{{ custom or 'False' }}"
+    var custom_size = "{{ new_min_cluster_size or 'none' }}"
+
+
+    var visDataUrl;
+
+    visDataUrl = "/get_data/" + fileName + "/" + comparatorType + "/" + comparator + "/" + custom + "/" + custom_size; // You may need to define 'comparator' somewhere or pass it from Flask as well.
+
+
+    d3.json(visDataUrl).then(function(data) {
+        // Define a color scale for different cluster labels
+    const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+    // Create scatter plot using D3.js
+    function createScatterPlot(data) {
+      const margin = { top: 20, right: 190, bottom: 30, left: 40 }; // Increase right margin for legend
+      const width = 900 - margin.left - margin.right; // Extend canvas width
+      const height = 600 - margin.top - margin.bottom;
+
+      const svg = d3.select("#scatter-plot")
+          .append("svg")
+          .attr("width", width + margin.left + margin.right)
+          .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      const xScale = d3.scaleLinear()
+          .domain([d3.min(data, d => d.coord_x), d3.max(data, d => d.coord_x)])
+          .range([0, width]);
+
+      const yScale = d3.scaleLinear()
+          .domain([d3.min(data, d => d.coord_y), d3.max(data, d => d.coord_y)])
+          .range([height, 0]);
+
+      var Tooltip = d3.select("#scatter-plot")
+          .append("div")
+          .style("opacity", 0)
+          .attr("class", "tooltip")
+          .style("background-color", "#ededed")
+          .style("padding", "5px")
+
+      // Cats with low citations had very small markers that made navigation difficult, using this code to dynamically scale based on overall citation values in the data
+      const minCitations = d3.min(data, (d) => d.citations);
+      const maxCitations = d3.max(data, (d) => d.citations);
+
+      // Defining the range of scaling factors to be used
+      const minScaleFactor = 0.85; // Adjust as needed
+      const maxScaleFactor = 1.25; // Adjust as needed
+
+      // Create a scaling function to map citation values to the scaling factor
+      const scaleFactor = d3.scaleLinear()
+          .domain([minCitations, maxCitations])
+          .range([minScaleFactor, maxScaleFactor]);
+
+      // Three function that change the tooltip when user hover / move / leave a cell
+      var mouseover = function(d) {
+          Tooltip
+              .style("opacity", 1);
+          d3.select(this)
+              .style("stroke", "black")
+              .style("opacity", 1)
+              .attr("r", (d) => Math.sqrt(d.citations) * scaleFactor(d.citations) + 2);
+          // Expand the div size on mouseover
+          d3.select(".resizeable-div").classed("expanded-size", true);
+          d3.select(".resizeable-div").classed("original-size", false);
+      };
+
+      var mousemove = function(event, data) {
+          Tooltip
+          .html("<b>Article Title:</b> " + data.article_title + "<br>" + 
+                  "<b>Source:</b> " + data.full_source_title + "<br>" +
+                  "<b>Citations:</b> " + data.citations + "<br>" +
+                  "<b>Topic:</b> " + data.gpt_label)
+          .style("left", (pointer(this)[0]+70) + "px")
+          .style("top", (pointer(this)[1]) + "px")
+      }
+
+      var mouseleave = function(d) {
+          Tooltip
+              .style("opacity", 0);
+          d3.select(this)
+              .style("stroke", "none")
+              .style("opacity", 0.8)
+              .attr("r", (d) => Math.sqrt(d.citations) * scaleFactor(d.citations))
+          // Return the div to its original size on mouseleave
+          d3.select(".resizeable-div").classed("expanded-size", false);
+          d3.select(".resizeable-div").classed("original-size", true);
+      };
+
+      svg.selectAll("circle")
+        .data(data)
+        .enter()
+        .append("circle")
+        .attr("cx", (d) => xScale(d.coord_x))
+        .attr("cy", (d) => yScale(d.coord_y))
+        .attr("r", (d) => Math.sqrt(d.citations) * scaleFactor(d.citations)) // Adjust marker size based on citations
+        .attr("fill", (d) => colorScale(d.gpt_label))
+        .attr("opacity", d => d.gpt_label === 'Unclustered' ? 0.5 : 1)
+        .on("mouseover", mouseover)
+        .on("mousemove", mousemove)
+        .on("mouseleave", mouseleave);
+
+      // Remove the x and y axis
+      svg.selectAll(".domain").remove();
+      svg.selectAll(".tick").remove();
+
+      const legend = svg.append("g")
+          .attr("class", "legend")
+          .attr("transform", `translate(${width + 20},${margin.top})`); // Align with top of visualization
+
+      const sortedGptLabels = data.map((d) => d.gpt_label).filter((label, index, self) => self.indexOf(label) === index); // Get unique labels
+      sortedGptLabels.sort(); // Sort the labels alphabetically
+
+      // Ensure "Unclustered" is at the top
+      if (sortedGptLabels.includes("Unclustered")) {
+          sortedGptLabels.splice(sortedGptLabels.indexOf("Unclustered"), 1); // Remove "Unclustered"
+          sortedGptLabels.unshift("Unclustered"); // Add "Unclustered" at the beginning
+      }
+
+      function highlightPoints(label) {
+          // First, grey out all the circles.
+          svg.selectAll("circle")
+              .style("opacity", 0.1);
+
+          // Then highlight the circles with the matching label.
+          svg.selectAll("circle")
+              .filter((d) => d.gpt_label === label)
+              .style("opacity", 1);
+      }
+
+      function resetAllPoints() {
+          svg.selectAll("circle")
+              .style("opacity", (d) => d.gpt_label === 'Unclustered' ? 0.5 : 1);
+          
+          // Remove the 'selected' class from all legend labels
+          svg.selectAll(".legend-label").classed("selected", false);
+      }
+
+      let unclusteredHidden = false; // A flag to track the visibility of 'Unclustered' points
+
+      function toggleUnclusteredPoints() {
+          unclusteredHidden = !unclusteredHidden;  // Flip the visibility flag
+          svg.selectAll("circle")
+              .filter((d) => d.gpt_label === "Unclustered")
+              .style("opacity", unclusteredHidden ? 0 : 0.5);
+      }
+
+      // Create groups for each label
+      const legendGroups = legend.selectAll(".legend-group")
+          .data(sortedGptLabels)
+          .enter()
+          .append("g")
+          .attr("class", "legend-group")
+          .attr("transform", (d, i) => `translate(0,${i * 20})`)
+          .on("click", function(event, d) {
+              if (d3.select(this).classed("selected")) {  // if already selected
+                  resetAllPoints();
+                  d3.select(this).classed("selected", false);
+              } else {
+                  highlightPoints(d);
+                  d3.select(this).classed("selected", true);
+          }})
+          .on("dblclick", function(event, d) {
+            if (d === "Unclustered") {
+                toggleUnclusteredPoints();
+            }
+          });
+
+      // Add circles to each group
+      legendGroups.append("circle")
+          .attr("class", "legend-color-circle")
+          .attr("cx", 0)
+          .attr("cy", 0)
+          .attr("r", 3)
+          .style("fill", (d) => colorScale(d))
+          .style("opacity", (d) => (d === 'Unclustered' ? 0.5 : 1))
+          .style("alignment-baseline", "middle");
+
+      // Add text to each group
+      legendGroups.append("text")
+          .attr("class", "legend-label")
+          .attr("x", 10) // Adjust the x position to create spacing
+          .attr("y", 0)
+          .attr("dy", ".32em")
+          .style("text-anchor", "start")
+          .style("alignment-baseline", "middle") // Vertically center align
+          .style("font-size", "10px") // Set the font size to your desired value
+          .text((d) => d);
+
+    }
+
+    // Filter out the "Unclustered" group and convert the JSON data to an array
+    const jsonData = data
+
+    // Initialize an empty array to store grouped data
+    var groupedArray = [];
+
+    // Initialize an empty object to store temporary grouped data
+    var groupedData = {};
+
+    // Loop through the articles and group them by GPT label
+    jsonData.forEach(function(article) {
+      var gptLabel = article.gpt_label; // Assuming the property name is 'gpt_label'
+      if (!groupedData[gptLabel]) {
+        groupedData[gptLabel] = {
+          gpt_label: gptLabel, // Add 'gpt_label' as a new property
+          count: 0,
+          totalCitations: 0,
+          year_published: {}, // Store year_published data
+        };
+        groupedArray.push(groupedData[gptLabel]);
+      }
+
+      // Count articles and citations
+      groupedData[gptLabel].count++;
+      groupedData[gptLabel].totalCitations += article.citations; // Assuming the property name is 'citations'
+      
+      // Track year_published data
+      var year = article.year_published; // Assuming the property name is 'year_published'
+      if (year) {
+        groupedData[gptLabel].year_published[year] = (groupedData[gptLabel].year_published[year] || 0) + 1;
+      }
+    });
+
+    // Calculate average citations for each group and round to two decimal places
+    groupedArray.forEach(function(group) {
+      group.averageCitations = (group.totalCitations / group.count).toFixed(2);
+
+      // Calculate 'growth' column values based on the criteria
+      var years = Object.keys(group.year_published);
+      if (years.length === 1) {
+        group.growth = 'Single';
+        group.rowGrowthRate = 0; // No growth for single-year group
+      } else {
+        var earliestYear = Math.min(...years);
+        var latestYear = Math.max(...years);
+        var growthRate = (group.year_published[latestYear] / group.year_published[earliestYear]) * 100;
+        var averageGrowthRate = groupedArray.reduce(function(sum, grp) {
+          return sum + ((grp.year_published[latestYear] / grp.year_published[earliestYear]) * 100);
+        }, 0) / groupedArray.length;
+
+        group.averageGrowthRate = averageGrowthRate;
+        group.rowGrowthRate = growthRate;
+
+        if (growthRate > 0 && growthRate > (averageGrowthRate*1.5)) {
+          group.growth = 'High-growth';
+        } else if (group.year_published[latestYear] > group.year_published[earliestYear]) {
+          group.growth = 'Growth';
+        } else if (group.year_published[latestYear] < group.year_published[earliestYear]) {
+          group.growth = 'Decline';
+        }
+      }
+      });
+
+    groupedArray = groupedArray.filter(function(group) {
+      return group.gpt_label !== 'Unclustered';
+    });
+
+    
+    const citationsSum = data.reduce((sum, paper) => sum + paper.citations, 0)
+    const citationsMean = Math.round(citationsSum / data.length*100)/100;
+
+    // Step 1: Group articles by topic label
+    var oaGroupedData = {};
+      data.forEach(function(article) {
+        if (article.gpt_label !== 'Unclustered') { // Add this condition
+          if (!oaGroupedData[article.gpt_label]) {
+            oaGroupedData[article.gpt_label] = {
+              gpt_label: article.gpt_label,
+              articles: [],
+              subscriptionCount: 0,
+              oaCount: 0,
+              totalCitations: 0
+            };
+          }
+          oaGroupedData[article.gpt_label].articles.push(article);
+
+          if (
+            article.art_oa_status === "Open Online" ||
+            article.art_oa_status === "Green Open Access" ||
+            article.art_oa_status === "Open Access"
+          ) {
+            oaGroupedData[article.gpt_label].oaCount++;
+          } else if (article.art_oa_status === "Subscription" || article.art_oa_status === "Bronze Open Access") {
+            oaGroupedData[article.gpt_label].subscriptionCount++;
+          }
+
+          oaGroupedData[article.gpt_label].totalCitations += article.citations;
+        }
+      });
+
+      // Convert the grouped data object to an array
+      var oaGroupedArray = Object.values(oaGroupedData);
+
+      // Step 2: Calculate proportions and counts for each group
+      oaGroupedArray.forEach(function(topicData) {
+        var totalArticles = topicData.articles.length;
+        var openAccessPercentage =
+          (topicData.oaCount / totalArticles) * 100;
+        var avgCitations = topicData.totalCitations / totalArticles;
+
+        topicData.totalArticles = totalArticles;
+        topicData.openAccessPercentage = (topicData.oaCount / totalArticles).toFixed(4) * 100;
+        topicData.avgCitations = avgCitations.toFixed(2);
+      });
+
+      // Counters for Open Access and Total Articles
+      var openAccessCount = 0;
+      var totalArticles = data.length;
+
+      // Iterate through the JSON data
+      for (var i = 0; i < data.length; i++) {
+          var oaStatus = data[i].art_oa_status;
+          // Refine the status according to your criteria
+          if (oaStatus === "Open Online" || oaStatus === "Green Open Access" || oaStatus === "Open Access") {
+              openAccessCount++;
+          }
+      }
+
+      // Calculate the proportion of Open Access articles
+      var proportionOpenAccess = (openAccessCount / totalArticles) * 100;
+
+      // Round the proportion to four decimal places
+      proportionOpenAccess = proportionOpenAccess.toFixed(2);
+    
+    function createTopicPlot(groupedData) {
+      delete groupedData['Unclustered'];
+      const margin = { top: 20, right: 190, bottom: 50, left: 50 };
+      const width = 700 - margin.left - margin.right;
+      const height = 500 - margin.top - margin.bottom;
+
+      const svg = d3.select("#topic-plot")
+          .append("svg")
+          .attr("width", width + margin.left + margin.right)
+          .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      const xScale = d3.scaleLinear()
+          .domain([0, d3.max(Object.values(groupedData), d => d.count)])
+          .range([0, width]);
+
+      const yScale = d3.scaleLinear()
+          .domain([0, d3.max(Object.values(groupedData), d => d.averageCitations)])
+          .range([height, 0]);
+
+      const xAxis = d3.axisBottom(xScale);
+      const yAxis = d3.axisLeft(yScale);
+
+      svg.append("g")
+        .attr("class", "x-axis")
+        .attr("transform", `translate(0,${height})`)
+        .call(xAxis);
+
+      svg.append("g")
+        .attr("class", "y-axis")
+        .call(yAxis);
+
+      const Tooltip = d3.select("#topic-plot")
+          .append("div")
+          .style("opacity", 0)
+          .attr("class", "tooltip")
+          .style("background-color", "#ededed")
+          .style("padding", "5px");
+
+      const mouseover = function(d, i) {
+        Tooltip.style("opacity", 1);
+        d3.select(this)
+          .style("stroke", "black")
+          .style("opacity", 1)
+          .attr("r", 5);
+      };
+
+      const mousemove = function(event, data, i) {
+        Tooltip.html(
+          "Cluster: <b>" + data.gpt_label + "</b><br>" +
+          "Article count: <b>" + data.count + "</b><br>" +
+          "Total citations: <b>" + data.totalCitations + "</b><br>" +
+          "Avg cites per article: <b>" + data.averageCitations + "</b><br>" +
+          "Article Growth Status: <b>" + data.growth + "</b>"
+        )
+        .style("left", (event.pageX + 10) + "px")
+        .style("top", (event.pageY + 10) + "px");
+      };
+
+      const mouseleave = function(d, i) {
+        Tooltip.style("opacity", 0);
+        d3.select(this)
+          .style("stroke", "none")
+          .style("opacity", 0.8)
+          .attr("r", 5);
+      };
+
+      svg.selectAll("marker")
+        .data(Object.values(groupedData))
+        .enter()
+        .append("path")
+        .attr("d", function(d) {
+          if (d.growth === "Growth") {
+            return "M 0,-5 L 5,5 L -5,5 Z"; // Upwards facing arrow
+          } else if (d.growth === "Decline") {
+            return "M 0,5 L 5,-5 L -5,-5 Z"; // Downwards facing arrow
+          } else if (d.growth === "High-growth") {
+            return "M 0,-5 L 5,0 L 0,5 L -5,0 Z"; // Plus symbol
+          } else {
+            return "M 0,0 L 5,0 A 5,5 0 1,1 -5,0 A 5,5 0 1,1 5,0 Z"; // Circle
+          }
+        })
+        .attr("transform", function(d) {
+          return "translate(" + xScale(d.count) + "," + yScale(d.averageCitations) + ") scale(1.6)"; // Scale up all markers by 30%
+        })
+        .attr("fill", (d, i) => colorScale(Object.keys(groupedData)[i] || 'Unclustered'))
+        .on("mouseover", mouseover)
+        .on("mousemove", mousemove)
+        .on("mouseleave", mouseleave);
+
+      svg.append("line")
+        .attr("x1", xScale.range()[0])
+        .attr("x2", xScale.range()[1])
+        .attr("y1", yScale(citationsMean))
+        .attr("y2", yScale(citationsMean))
+        .attr("stroke", "black")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "4 4");
+
+        svg.append("line")
+          .attr("x1", xScale.range()[0])
+          .attr("x2", xScale.range()[1])
+          .attr("y1", yScale(citationsMean))
+          .attr("y2", yScale(citationsMean))
+          .attr("stroke", "black")
+          .attr("stroke-width", 1)
+          .attr("stroke-dasharray", "4 4");
+
+        svg.append("text")
+          .attr("x", xScale.range()[1]) // Position the text label at the end of the x-axis
+          .attr("y", yScale(citationsMean) - 10) // Position the text label 5 pixels above the line
+          .attr("dy", "0.35em") // Center the text vertically
+          .attr("font-size", "60%") // Reduce the font size by 50%
+          .attr("text-anchor", "end") // Align the text to the end of the line
+          .attr("alignment-baseline", "baseline") // Align the text vertically with the line
+          .text("Avg Cites for Subject: " + citationsMean);
+
+        // Append the x-axis label
+        svg.append("text")
+          .attr("x", (width / 2))
+          .attr("y", height + margin.top + 20)
+          .attr("text-anchor", "middle")
+          .attr("font-size", "70%")
+          .text("# Articles Published");
+
+        // Append the y-axis label
+        svg.append("text")
+          .attr("transform", "rotate(-90)")
+          .attr("y", 0 - margin.left)
+          .attr("x", 0 - (height / 2))
+          .attr("dy", "1em")
+          .attr("text-anchor", "middle")
+          .attr("font-size", "70%")
+          .text("Avg Cites Per Article");
+
+    }
+
+    function createOAPlot(oaGroupedArray) {
+      const margin = { top: 20, right: 190, bottom: 50, left: 50 };
+      const width = 700 - margin.left - margin.right;
+      const height = 500 - margin.top - margin.bottom;
+
+      var svg = d3.select("#oa-plot")
+        .append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+      var xScale = d3.scaleLinear()
+        .domain([0, d3.max(oaGroupedArray, function(d) { return d.totalArticles; })])
+        .range([0, width]);
+
+      var yScale = d3.scaleLinear()
+        .domain([0, 100])
+        .range([height, 0]);
+
+      var sizeScale = d3.scaleLinear()
+        .domain(d3.extent(oaGroupedArray, function(d) { return +d.avgCitations; }))
+        .range([5, 20]);
+
+      const Tooltip = d3.select("#oa-plot")
+          .append("div")
+          .style("opacity", 0)
+          .attr("class", "tooltip")
+          .style("background-color", "#ededed")
+          .style("padding", "5px");
+
+      const mouseover = function(d, i) {
+        Tooltip.style("opacity", 1);
+        d3.select(this)
+          .style("stroke", "black")
+          .style("opacity", 1)
+          .attr("r", function(d) { return sizeScale(+d.avgCitations) + 5; })
+      };
+
+      const mousemove = function(event, data, i) {
+        Tooltip.html(
+          "Cluster: <b>" + data.gpt_label + "</b><br>" +
+          "Article count: <b>" + data.totalArticles + "</b><br>" +
+          "Total Subscription: <b>" + data.subscriptionCount + "</b><br>" +
+          "Total OA: <b>" + data.oaCount + "</b><br>" +
+          "OA Percentage: <b>" + data.openAccessPercentage + "%</b>"
+        )
+        .style("left", (event.pageX + 10) + "px")
+        .style("top", (event.pageY + 10) + "px");
+      };
+
+      const mouseleave = function(d, i) {
+        Tooltip.style("opacity", 0);
+        d3.select(this)
+          .style("stroke", "none")
+          .style("opacity", 0.8)
+          .attr("r", function(d) { return sizeScale(+d.avgCitations); });
+      };
+
+      svg.selectAll(".dot")
+        .data(oaGroupedArray)
+        .enter()
+        .append("circle")
+        .attr("class", "dot")
+        .attr("cx", function(d) { return xScale(d.totalArticles); })
+        .attr("cy", function(d) { return yScale(d.openAccessPercentage); })
+        .attr("r", function(d) { return sizeScale(+d.avgCitations); })
+        .style("fill", function(d) { return colorScale(d.gpt_label); })
+        .on("mouseover", mouseover)
+        .on("mousemove", mousemove)
+        .on("mouseleave", mouseleave);
+
+      // X-axis
+      svg.append("g")
+        .attr("transform", "translate(0," + height + ")")
+        .call(d3.axisBottom(xScale));
+
+      // Y-axis
+      svg.append("g")
+        .call(d3.axisLeft(yScale));
+
+      // X-axis label
+      svg.append("text")
+        .attr("transform", "translate(" + (width / 2) + " ," + (height + margin.top + 10) + ")")
+        .style("text-anchor", "middle")
+        .attr("font-size", "70%")
+        .attr("y", 7)
+        .text("Total Publications");
+
+      // Y-axis label
+      svg.append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("y", 0 - margin.left)
+        .attr("x", 0 - (height / 2))
+        .attr("dy", "1em")
+        .style("text-anchor", "middle")
+        .attr("font-size", "70%")
+        .text("Open Access Percentage (%)");
+
+      svg.append("line")
+        .attr("x1", xScale.range()[0])
+        .attr("x2", xScale.range()[1])
+        .attr("y1", yScale(proportionOpenAccess ))
+        .attr("y2", yScale(proportionOpenAccess ))
+        .attr("stroke", "black")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "4 4");
+
+      svg.append("text")
+        .attr("x", xScale.range()[1]) // Position the text label at the end of the x-axis
+        .attr("y", yScale(proportionOpenAccess ) - 10) // Position the text label 5 pixels above the line
+        .attr("dy", "0.35em") // Center the text vertically
+        .attr("font-size", "60%") // Reduce the font size by 50%
+        .attr("text-anchor", "end") // Align the text to the end of the line
+        .attr("alignment-baseline", "baseline") // Align the text vertically with the line
+        .text("Cat Avg OA: " + proportionOpenAccess + "%" );
+
+    };
+
+    
+
+        // The svg element for the choropleth map
+        const svg = d3.select("svg"),
+          width = +svg.attr("width"),
+          height = +svg.attr("height");
+
+        // Map and projection
+        const path = d3.geoPath();
+        const projection = d3.geoMercator()
+          .scale(140)
+          .center([0, 30])
+          .translate([width / 2, height / 2]);
+
+        // Data and color scale
+        let choroplethData = new Map();
+
+        // Construct the URL for the choropleth data
+        var fileName = "{{ file_name }}";
+        var fileName = "{{ file_name }}";
+        var comparatorType = "{{ comparator_type or 'none' }}";  // This sets the variable to 'none' if comparator_type is not available.
+        var comparator = "{{ comparator or 'none' }}"
+        var custom = "{{ custom or 'False' }}"
+        var custom_size = "{{ new_min_cluster_size or 'none' }}"
+        
+        var choroDataUrl;
+
+        choroDataUrl = "/choroplethData/" + fileName + "/" + comparatorType + "/" + comparator + "/" + custom + "/" + custom_size; // You may need to define 'comparator' somewhere or pass it from Flask as well.
+
+        console.log(choroDataUrl)
+
+        // Define a default color for undefined values
+        const defaultColor = "gray"; // Choose your default color
+
+        // Create a tooltip
+        const tooltip = d3.select(".tooltip")
+          .style("position", "absolute")
+          .style("background", "white")
+          .style("border", "1px solid #ccc")
+          .style("padding", "5px")
+          .style("border-radius", "3px")
+          .style("opacity", 0);
+
+
+        
+        // Load the GeoJSON data for your geographic features
+        d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson").then(function (data) {
+          const topo = data;
+          
+        // Load the source data
+        d3.json(choroDataUrl).then(function (sourceData) {
+          // Store the source data
+          const sourceDataMap = new Map(Object.entries(sourceData));
+
+          // Create a function to update the choropleth map based on the selected view
+          function updateChoropleth(selectedView, topo) { // Add the topo parameter
+            const viewData = sourceDataMap.get(selectedView);
+
+            // Extract the values from the viewData
+            const dataValues = viewData.map(d => d.publications);
+
+            // Calculate the min and max values from the view data
+            const minValue = d3.min(dataValues);
+            const maxValue = d3.max(dataValues);
+
+            // Use a logarithmic color scale
+            const dynamicColorScale = d3.scaleLog()
+              .domain([minValue, maxValue])
+              .range(["#c1e7ff", "#86b0cc", "#4c7c9b", "#004c6d"]);
+
+            // Compute dynamic thresholds based on the log-scaled data
+            const thresholds = d3.range(minValue, maxValue, (maxValue - minValue) / 5);
+
+            // Update the fill attribute using the dynamic color scale
+            svg.selectAll("path")
+              .data(topo.features)
+              .join("path")
+              .attr("d", d3.geoPath().projection(projection))
+              .attr("fill", function (d) {
+                const countryName = d.properties.name;
+                const dataPoint = viewData.find(entry => entry.country === countryName);
+                if (dataPoint) {
+                  return dynamicColorScale(dataPoint.publications);
+                } else {
+                  return defaultColor;
+                }
+              })
+              .on("mouseover", function(event, d) {
+                const countryName = d.properties.name;
+                const dataPoint = viewData.find(entry => entry.country === countryName);
+                let publicationCount = "No data";
+                if (dataPoint) {
+                  publicationCount = dataPoint.publications;
+                }
+                tooltip.html((countryName === 'England' ? 'United Kingdom' : countryName) + "<br/>Publications: " + publicationCount)
+                  .style("opacity", 1);
+              })
+              .on("mousemove", function(event) {
+                tooltip.style("left", (event.pageX + 5) + "px")
+                  .style("top", (event.pageY - 28) + "px");
+              })
+              .on("mouseout", function() {
+                tooltip.style("opacity", 0);
+              });
+          }
+
+          // Create a UI element (e.g., a dropdown) to allow the user to switch between views
+          const viewSelector = document.getElementById("viewSelector"); // You should define an HTML element for view selection
+          viewSelector.addEventListener("change", function () {
+            const selectedView = viewSelector.value;
+            updateChoropleth(selectedView, topo); // Pass topo as an argument
+          });
+
+          // Initial update of the choropleth map
+          updateChoropleth(sourceDataMap.keys().next().value, topo);
+        });
+      });
+
+    
+    createTopicPlot(groupedData);  
+    createOAPlot(oaGroupedArray);
+    createScatterPlot(data);
+    
+    });
+
+    function downloadExemplars(useComparators) {
+      var fileName = "{{ file_name }}";
+      var custom = "{{ custom or 'False' }}"
+      var custom_size = "{{ new_min_cluster_size or 'none' }}"
+
+      var comparatorType, comparator;
+
+      if (useComparators) {
+          comparatorType = "{{ comparator_type }}";
+          comparator = "{{ comparator }}";
+      } else {
+          comparatorType = "none";
+          comparator = "none";
+      }
+
+      var url = "/download_exemplars/" + fileName + "/" + comparatorType + "/" + comparator + "/" + custom + "/" + custom_size;
+      window.location.href = url;
+    }
+
+    function downloadAuthors(useComparators) {
+      var fileName = "{{ file_name }}";
+      var custom = "{{ custom or 'False' }}"
+      var custom_size = "{{ new_min_cluster_size or 'none' }}"
+  
+      var comparatorType, comparator;
+  
+      if (useComparators) {
+          comparatorType = "{{ comparator_type }}";
+          comparator = "{{ comparator }}";
+      } else {
+          comparatorType = "none";
+          comparator = "none";
+      }
+  
+      var url = "/download_authors/" + fileName + "/" + comparatorType + "/" + comparator + "/" + custom + "/" + custom_size;
+      window.location.href = url;
+    }
+
+    function downloadAll() {
+      var fileName = "{{ file_name }}";
+      var custom = "{{ custom or 'False' }}"
+      var custom_size = "{{ new_min_cluster_size or 'none' }}"
+    
+      var url = "/download_all/" + fileName + "/" + custom + "/" + custom_size;
+      window.location.href = url;
+    }
+
+
+  </script>
+  
+{% endblock %}

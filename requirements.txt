@@ -1,0 +1,36 @@
+# Local src folder
+
+-e .
+
+# Standard packages for all projects
+numpy==1.26.2
+pandas
+plotly
+awswrangler
+black
+ipykernel
+nbformat
+nbconvert
+pytest
+openpyxl
+tabulate
+streamlit
+aws-mfa-v2
+redis-py-cluster
+cloudwatch
+watchtower
+
+# Project-specific packages (excluding private repos - see above)
+flask
+Flask-WTF
+hdbscan
+openai==0.28.1
+backoff
+langchain
+Flask-SQLAlchemy==3.0.5
+snowflake-sqlalchemy==1.5.1
+psycopg2
+gunicorn
+fsspec
+s3fs
+email-validator

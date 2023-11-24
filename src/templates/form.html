@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}New Query{% endblock %}
+
+
+{% block content %}
+
+
+<div class="container">
+
+	<div id="alertContainer" style="display: none;">
+		<div class="alert alert-primary alert-dismissible fade show" role="alert">
+			<span id="alertMessage"></span>
+			<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+		</div>
+	</div>
+
+	<div class="row">
+		<div class="col-2"></div>
+		<div class="col-8 center">
+			<h3 align = "center">Subject Parameters</h3>
+			<br />
+			<form method="post" id="search-params">
+				{{ form.hidden_tag() }}
+				<div class="form-group">
+					{{ form.subject.label }}
+					{{ form.subject(class="form-control", id="subject", size=1) }}
+				</div>
+				<br />
+				<div class="form-group">
+					{{ form.pub_years.label }}
+					{{ form.pub_years(class="form-control", size=5) }}
+				</div>
+				<br />
+				<div class="form-group">
+					{{ form.country.label }}
+					{{ form.country(class="form-control", id="country") }}
+				</div>
+				<br />
+				<div class="form-group">
+					{{ form.region.label }}
+					{{ form.region(class="form-control", id="region") }}
+				</div>
+				<br />
+				<div class="form-group">
+					{{ form.publisher.label }}
+					{{ form.publisher(class="form-control", id="publisher") }}
+				</div>
+				<br />
+				<div class="form-group">
+					{{ form.comparitor.label }}
+					{{ form.comparitor(class="form-control", id="journal") }}
+					<script>
+						let subject_select = document.getElementById("subject");
+						let comparitor_select = document.getElementById("comparitor");
+					
+						subject_select.onchange = function () {
+							subject = subject_select.value;
+					
+							fetch('comparitors/' + subject).then(function (response) {
+								response.json().then(function (data) {
+									console.table(data);
+									let optionHTML = '';
+									for (let comparitor of data.comparitors) {
+										optionHTML += '<option value="' + comparitor.full_source_title + '">' + comparitor.full_source_title + '</option>';
+									}
+
+					
+									comparitor_select.innerHTML = optionHTML;
+								})
+							})
+						}
+					</script>						
+				</div>
+				<br />
+				<br />
+				<button class="btn btn-primary" type="submit" id="submit-button">
+					<span id="submit-text">Submit</span>
+					<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" id="submit-spinner" style="display: none;"></span>
+				</button>				
+			</form>
+
+		</div>
+		<div class="col-2"></div>
+			
+	</div>
+</div>
+
+
+
+
+<script>
+$(document).ready(function() {
+    $("#search-params").on("submit", function(e) {
+        e.preventDefault(); // Prevent the default form submission
+
+        $('#submit-spinner').show();
+        $('#submit-text').hide();
+
+        let subjectValue = $('#subject').val();
+        let pubYearsArray = $('#pub_years').val();
+        let processedYears = pubYearsArray.join('_');
+        let filePart = subjectValue + '_' + processedYears + '.parquet';
+        let urlPath = '/check_s3/' + encodeURIComponent(filePart);
+
+        $.ajax({
+            url: urlPath,
+            method: 'GET',
+			success: function(response) {
+				$('#submit-spinner').show();
+            	$('#submit-text').hide();
+				if (response.exists) {
+					let filePart = subjectValue + '_' + processedYears + '.parquet';
+					let comparatorType;
+					let comparatorValue;
+
+					// Determine which comparator type is selected and its value
+					if ($('#country').val()) {
+						comparatorType = 'country';
+						comparatorValue = $('#country').val();
+					} else if ($('#region').val()) {
+						comparatorType = 'region';
+						comparatorValue = $('#region').val();
+					} else if ($('#publisher').val()) {
+						comparatorType = 'publisher';
+						comparatorValue = $('#publisher').val();
+					} else if ($('#comparator').val()) {
+						comparatorType = 'journal';
+						comparatorValue = $('#comparator').val();
+					}
+
+					// Redirect to the comparator dashboard if a comparator type and value are selected
+					if (comparatorType && comparatorValue) {
+						window.location.href = '/comparator_dashboard/' + encodeURIComponent(filePart) + '/' + comparatorType + '/' + encodeURIComponent(comparatorValue);
+					} else {
+						// Redirect to the regular dashboard if no comparator is selected
+						window.location.href = '/dashboard/' + encodeURIComponent(filePart);
+					}
+				} else {
+					$('#dataModal').modal('show');
+					$('#hiddenFileName').val(filePart);
+				}
+			},
+            error: function() {
+                console.error("There was an error checking the data.");
+				$('#submit-spinner').hide();
+    			$('#submit-text').show();
+                // Optionally show some feedback to the user
+            }
+        });
+    });
+});
+
+
+$(document).ready(function() {
+    $("#modalSubmit").on("click", function(e) {
+        e.preventDefault(); // Prevent the default form submission
+
+        let emailValue = $('#modalEmail').val();
+        let fileName = $('#hiddenFileName').val();
+
+        $.ajax({
+            url: "/email_submit",
+            method: 'POST',
+            data: {
+                'user_email': emailValue,
+                'file_name': fileName, 
+                'csrf_token': $('input[name="csrf_token"]').val() // Corrected to use a more generic selector
+            },
+            success: function(response) {
+                $('#dataModal').modal('hide'); // Close the modal
+
+                // Set the alert message and show the alert
+                $('#alertMessage').text("Your request has been submitted!");
+                $('#alertContainer').removeClass('d-none').css('display', 'block').addClass('show');
+
+                setTimeout(function(){
+                    $('#alertContainer').addClass('d-none').removeClass('show');
+                }, 5000);
+            },
+            error: function() {
+                console.error("There was an error submitting the email.");
+
+                // Set the alert message and show the alert
+                $('#alertMessage').text("Error submitting your request. Please try again later.");
+                $('#alertContainer').removeClass('d-none').css('display', 'block').addClass('show');
+                setTimeout(function(){
+                    $('#alertContainer').addClass('d-none').removeClass('show');
+                }, 5000); // This will hide the alert after 5 seconds
+            }
+        });
+    });
+});
+
+
+</script>
+
+<!-- Data Preparation Modal -->
+<div class="modal fade" id="dataModal" tabindex="-1" role="dialog" aria-labelledby="dataModalLabel" aria-hidden="true">
+	<div class="modal-dialog" role="document">
+	  <div class="modal-content">
+		<div class="modal-header">
+		  <h5 class="modal-title" id="dataModalLabel">Data Preparation Required</h5>
+		  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+			<span aria-hidden="true">&times;</span>
+		  </button>
+		</div>
+		<div class="modal-body">
+			<p>Unfortunately, the data for your request is not ready and needs to be prepared. Processing will be completed automatically and requires no further action on your part. Processing times vary significantly but are ultimately based on the number of articles that fall under the search parameters but are likely to be anywhere between 15 minutes to four hours.</p>
+			<p>If you prefer, the application can email you when the data has been prepared. If this interests you, enter your email below and click submit.</p>
+			<br />
+			<form method="post" id="email-form">
+				{{ email_form.user_email.label }} {{ email_form.user_email(class="form-control", id="modalEmail") }}
+				{{ email_form.file_name(id="hiddenFileName") }}
+				{{ email_form.csrf_token }}
+				<div class="modal-footer">
+					<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+					<button type="submit" class="btn btn-primary" id="modalSubmit">Submit</button>
+				</div>
+			</form>
+		</div>
+
+	  </div>
+	</div>
+  </div>
+</div>
+  
+{% endblock %}
